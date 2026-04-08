@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Save, Loader2, CheckCircle2, Plus, Trash2,
@@ -84,8 +84,10 @@ export default function ProyectoDetail() {
   const [busqMat, setBusqMat] = useState('')
   const [matResults, setMatResults] = useState([])
   const [matSearching, setMatSearching] = useState(false)
-  const [showMatList, setShowMatList] = useState(false)
+  const [matDropdownOpen, setMatDropdownOpen] = useState(false)
   const [matAddedMsg, setMatAddedMsg] = useState('')
+  const [matError, setMatError] = useState('')
+  const matInputRef = useRef(null)
 
   // Nuevo gasto
   const [gastoForm, setGastoForm] = useState({ tipo: 'mano_obra', descripcion: '', importe: '', fecha: new Date().toISOString().split('T')[0], responsable_id: '' })
@@ -172,7 +174,7 @@ export default function ProyectoDetail() {
 
   // ── Materiales: buscar en Supabase ───────────────────────────────────────
   const searchMateriales = useCallback(async (texto) => {
-    if (texto.length < 2) { setMatResults([]); return }
+    if (texto.length < 2) { setMatResults([]); setMatDropdownOpen(false); return }
     setMatSearching(true)
     const { data, error } = await supabase
       .from('materiales')
@@ -181,7 +183,9 @@ export default function ProyectoDetail() {
       .order('nombre')
       .limit(8)
     if (error) console.error('Error buscando materiales:', error)
-    setMatResults(data || [])
+    const results = data || []
+    setMatResults(results)
+    setMatDropdownOpen(results.length > 0)
     setMatSearching(false)
   }, [])
 
@@ -192,31 +196,49 @@ export default function ProyectoDetail() {
 
   // ── Materiales: añadir del catálogo ──────────────────────────────────────
   const addMaterial = async (mat) => {
+    setMatError('')
     // Si ya existe, incrementar cantidad
     const existing = pmats.find(m => m.material_id === mat.id)
     if (existing) {
-      await updatePmat(existing.id, 'cantidad', toNum(existing.cantidad) + 1)
-      setBusqMat(''); setShowMatList(false)
-      showConfirm(`Cantidad de "${mat.nombre}" incrementada`)
+      const newCant = toNum(existing.cantidad) + 1
+      await updatePmat(existing.id, 'cantidad', newCant)
+      setBusqMat(''); setMatDropdownOpen(false); setMatResults([])
+      showConfirm(`Cantidad de "${mat.nombre}" actualizada a ${newCant}`)
       return
     }
-    const { data, error } = await supabase.from('proyecto_materiales').insert([{
-      proyecto_id: id, material_id: mat.id, nombre_material: mat.nombre,
-      cantidad: 1, precio_estimado: mat.precio_base || 0,
-      proveedor: mat.proveedor || null, estado: 'pendiente',
-    }]).select().single()
-    if (error) { console.error('Error añadiendo material:', error); return }
+    const payload = {
+      proyecto_id: id,
+      material_id: mat.id,
+      nombre_material: mat.nombre,
+      cantidad: 1,
+      precio_estimado: mat.precio_base ? parseFloat(mat.precio_base) : 0,
+      proveedor: mat.proveedor || null,
+      estado: 'pendiente',
+    }
+    console.log('Insertando material:', payload)
+    const { data, error } = await supabase
+      .from('proyecto_materiales')
+      .insert([payload])
+      .select()
+      .single()
+    if (error) {
+      console.error('Error añadiendo material:', error)
+      setMatError(`Error: ${error.message}`)
+      return
+    }
+    console.log('Material insertado:', data)
     if (data) {
       setPmats(prev => [...prev, data])
       setStockMap(prev => ({ ...prev, [mat.id]: toNum(mat.stock_actual) }))
     }
-    setBusqMat(''); setShowMatList(false); setMatResults([])
-    showConfirm(`"${mat.nombre}" añadido`)
+    setBusqMat(''); setMatDropdownOpen(false); setMatResults([])
+    matInputRef.current?.blur()
+    showConfirm(`"${mat.nombre}" añadido correctamente`)
   }
 
   const showConfirm = (msg) => {
     setMatAddedMsg(msg)
-    setTimeout(() => setMatAddedMsg(''), 2500)
+    setTimeout(() => setMatAddedMsg(''), 3000)
   }
 
   // ── Materiales: actualizar campo inline ──────────────────────────────────
@@ -495,34 +517,41 @@ export default function ProyectoDetail() {
 
             {/* Buscador catálogo — consulta Supabase directamente */}
             <div className="relative mb-3">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              {matSearching && <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />}
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              {matSearching && <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin pointer-events-none" />}
               <input
+                ref={matInputRef}
                 value={busqMat}
-                onChange={e => { setBusqMat(e.target.value); setShowMatList(true) }}
-                onFocus={() => { if (busqMat.length >= 2) setShowMatList(true) }}
+                onChange={e => setBusqMat(e.target.value)}
+                onFocus={() => { if (matResults.length > 0) setMatDropdownOpen(true) }}
+                onBlur={() => setTimeout(() => setMatDropdownOpen(false), 150)}
                 placeholder="Buscar en catálogo y añadir... (mín. 2 letras)"
                 className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-primary"
+                autoComplete="off"
               />
-              {showMatList && busqMat.length >= 2 && (
-                <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-40 mt-1 max-h-48 overflow-y-auto">
-                  {matResults.length === 0 && !matSearching ? (
-                    <p className="px-3 py-2.5 text-xs text-gray-400">Sin resultados</p>
-                  ) : matResults.map(m => (
-                    <button key={m.id} type="button"
-                      onMouseDown={e => { e.preventDefault(); addMaterial(m) }}
-                      className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-gray-800 truncate">{m.nombre}</div>
-                          <div className="text-xs text-gray-400">{m.categoria} · {m.proveedor || '—'}</div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-xs font-bold text-gray-700">{toNum(m.precio_base).toLocaleString('es-ES')} €</div>
-                          <div className="text-xs text-gray-400">Stock: {toNum(m.stock_actual)}</div>
-                        </div>
+              {matDropdownOpen && matResults.length > 0 && (
+                <div
+                  className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-50 mt-1 max-h-52 overflow-y-auto"
+                  onMouseDown={e => e.preventDefault()}
+                >
+                  {matResults.map(m => (
+                    <div
+                      key={m.id}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        addMaterial(m)
+                      }}
+                      className="flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-0 select-none"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-800 truncate">{m.nombre}</div>
+                        <div className="text-xs text-gray-400">{m.categoria} · {m.proveedor || '—'}</div>
                       </div>
-                    </button>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-xs font-bold text-gray-700">{toNum(m.precio_base).toLocaleString('es-ES')} €</div>
+                        <div className="text-xs text-gray-400">Stock: {toNum(m.stock_actual)}</div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -531,6 +560,12 @@ export default function ProyectoDetail() {
               <div className="bg-green-50 border border-green-200 text-green-700 text-xs font-bold px-3 py-2 rounded-lg mb-2 flex items-center gap-1.5">
                 <CheckCircle2 size={13} />
                 {matAddedMsg}
+              </div>
+            )}
+            {matError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold px-3 py-2 rounded-lg mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={13} />
+                {matError}
               </div>
             )}
 
