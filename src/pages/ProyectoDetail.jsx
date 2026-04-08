@@ -78,6 +78,8 @@ export default function ProyectoDetail() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [demandaTotal, setDemandaTotal] = useState({})
 
   // Material search
   const [busqMat, setBusqMat] = useState('')
@@ -90,7 +92,7 @@ export default function ProyectoDetail() {
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
 
   const fetchAll = useCallback(async () => {
-    const [pRes, fRes, pmRes, gRes, uRes, cRes, mRes] = await Promise.all([
+    const [pRes, fRes, pmRes, gRes, uRes, cRes, mRes, actProyRes, allPmRes] = await Promise.all([
       supabase.from('proyectos').select('*').eq('id', id).single(),
       supabase.from('fases_proyecto').select('*').eq('proyecto_id', id).order('orden'),
       supabase.from('proyecto_materiales').select('*').eq('proyecto_id', id).order('created_at'),
@@ -98,6 +100,8 @@ export default function ProyectoDetail() {
       supabase.from('usuarios').select('*').order('nombre'),
       supabase.from('contactos').select('id, nombre, empresa').order('empresa'),
       supabase.from('materiales').select('*').order('nombre'),
+      supabase.from('proyectos').select('id').neq('estado', 'cerrado'),
+      supabase.from('proyecto_materiales').select('material_id, cantidad, proyecto_id'),
     ])
     if (pRes.data) { setProyecto(pRes.data); setForm(pRes.data) }
     setFases(fRes.data || [])
@@ -106,6 +110,15 @@ export default function ProyectoDetail() {
     setUsuarios(uRes.data || [])
     setContactos(cRes.data || [])
     setCatalogoMats(mRes.data || [])
+    // Calcular demanda total por material en proyectos activos
+    const activeIds = new Set((actProyRes.data || []).map(p => p.id))
+    const dem = {}
+    for (const pm of (allPmRes.data || [])) {
+      if (activeIds.has(pm.proyecto_id) && pm.material_id) {
+        dem[pm.material_id] = (dem[pm.material_id] || 0) + toNum(pm.cantidad)
+      }
+    }
+    setDemandaTotal(dem)
     setLoading(false)
   }, [id])
 
@@ -158,8 +171,21 @@ export default function ProyectoDetail() {
     setFases(prev => prev.map(f => f.id === faseId ? { ...f, [field]: value } : f))
   }
 
+  // ── Eliminar proyecto ─────────────────────────────────────────────────────
+  const handleDeleteProyecto = async () => {
+    await supabase.from('proyectos').delete().eq('id', id)
+    navigate('/proyectos')
+  }
+
   // ── Materiales: añadir del catálogo ──────────────────────────────────────
   const addMaterial = async (mat) => {
+    // Si ya existe, incrementar cantidad
+    const existing = pmats.find(m => m.material_id === mat.id)
+    if (existing) {
+      updatePmat(existing.id, 'cantidad', toNum(existing.cantidad) + 1)
+      setBusqMat(''); setShowMatList(false)
+      return
+    }
     const { data } = await supabase.from('proyecto_materiales').insert([{
       proyecto_id: id, material_id: mat.id, nombre_material: mat.nombre,
       cantidad: 1, precio_estimado: mat.precio_base || 0,
@@ -209,13 +235,14 @@ export default function ProyectoDetail() {
     return <div className="p-6"><button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-500"><ArrowLeft size={20} />Volver</button><p className="mt-4 text-gray-500">Proyecto no encontrado.</p></div>
   }
 
-  const usuariosMap = usuarios.reduce((a, u) => ({ ...a, [u.id]: u }), {})
+  const catalogoMap = catalogoMats.reduce((a, m) => ({ ...a, [m.id]: m }), {})
   const matsFiltrados = catalogoMats.filter(m => busqMat.length >= 1 && m.nombre?.toLowerCase().includes(busqMat.toLowerCase())).slice(0, 8)
 
   const inp = 'w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-primary bg-white'
   const lbl = 'block text-xs font-bold text-gray-500 mb-1'
 
   return (
+    <>
     <div className="p-4 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
@@ -324,6 +351,10 @@ export default function ProyectoDetail() {
               }`}>
               {saving ? <Loader2 size={16} className="animate-spin" /> : saved ? <CheckCircle2 size={16} /> : <Save size={16} />}
               {saved ? 'Guardado' : saving ? 'Guardando...' : 'Guardar Cambios'}
+            </button>
+            <button onClick={() => setShowDeleteConfirm(true)}
+              className="w-full mt-1 text-red-400 hover:text-red-600 text-sm font-medium py-2 transition-colors text-center">
+              Eliminar proyecto
             </button>
           </div>
         </div>
@@ -443,6 +474,7 @@ export default function ProyectoDetail() {
                 value={busqMat}
                 onChange={e => { setBusqMat(e.target.value); setShowMatList(true) }}
                 onFocus={() => setShowMatList(true)}
+                onBlur={() => setTimeout(() => setShowMatList(false), 200)}
                 placeholder="Buscar en catálogo y añadir..."
                 className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-primary"
               />
@@ -451,7 +483,7 @@ export default function ProyectoDetail() {
                   {matsFiltrados.length === 0 ? (
                     <p className="px-3 py-2.5 text-xs text-gray-400">Sin resultados en catálogo</p>
                   ) : matsFiltrados.map(m => (
-                    <button key={m.id} type="button" onClick={() => addMaterial(m)}
+                    <button key={m.id} type="button" onMouseDown={() => addMaterial(m)}
                       className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
                       <div className="flex items-center justify-between">
                         <div>
@@ -483,6 +515,20 @@ export default function ProyectoDetail() {
                         <AlertTriangle size={11} />Retraso en entrega
                       </div>
                     )}
+                    {(() => {
+                      if (!m.material_id) return null
+                      const cat = catalogoMap[m.material_id]
+                      if (!cat) return null
+                      const stockDisp = toNum(cat.stock_actual)
+                      const demanda = toNum(demandaTotal[m.material_id])
+                      if (demanda <= stockDisp) return null
+                      return (
+                        <div className="flex items-center gap-1 text-orange-700 font-bold text-xs bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 mb-1.5">
+                          <AlertTriangle size={11} />
+                          Stock insuficiente: tienes {stockDisp}, necesitas {demanda}. Faltan {demanda - stockDisp} ud.
+                        </div>
+                      )
+                    })()}
                     <div className="font-bold text-sm text-gray-800 mb-2">{m.nombre_material || '—'}</div>
                     <div className="grid grid-cols-2 gap-1.5 mb-1.5">
                       <div>
@@ -667,5 +713,31 @@ export default function ProyectoDetail() {
         </div>
       </div>
     </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 rounded-xl flex-shrink-0">
+                <AlertTriangle size={22} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Eliminar proyecto</h3>
+            </div>
+            <p className="text-gray-700 text-sm mb-1">¿Eliminar <strong>{proyecto.nombre}</strong>?</p>
+            <p className="text-gray-500 text-sm mb-5">Esta acción no se puede deshacer. Se eliminarán también todas sus fases, materiales y gastos.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-700 font-bold hover:bg-gray-50 transition-colors">
+                Cancelar
+              </button>
+              <button onClick={handleDeleteProyecto}
+                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-colors">
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
