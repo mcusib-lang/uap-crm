@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Loader2, RefreshCw, AlertTriangle, Calendar, User, TrendingUp, Package } from 'lucide-react'
+import { Plus, Loader2, RefreshCw, AlertTriangle, Calendar, MoreVertical, Trash2, ExternalLink, Package } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { ESTADOS_PROYECTO } from '../lib/proyectoFases'
 import NuevoProyectoModal from '../components/NuevoProyectoModal'
@@ -30,9 +30,25 @@ function Avatar({ nombre, size = 7 }) {
   )
 }
 
-function ProyectoCard({ proyecto, usuariosMap, contactosMap, fasesMap, materialesMap }) {
+function ProyectoCard({ proyecto, usuariosMap, contactosMap, fasesMap, materialesMap, onDeleted }) {
   const navigate = useNavigate()
+  const [showMenu, setShowMenu] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const menuRef = useRef(null)
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+
+  useEffect(() => {
+    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleDelete = async (e) => {
+    e.stopPropagation()
+    await supabase.from('proyectos').delete().eq('id', proyecto.id)
+    setShowDeleteConfirm(false)
+    onDeleted()
+  }
 
   const fases = fasesMap[proyecto.id] || []
   const totalFases = fases.length
@@ -60,10 +76,36 @@ function ProyectoCard({ proyecto, usuariosMap, contactosMap, fasesMap, materiale
   const respTecnico = usuariosMap[proyecto.responsable_tecnico]
 
   return (
+    <>
     <div
       onClick={() => navigate(`/proyectos/${proyecto.id}`)}
       className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 cursor-pointer hover:shadow-md hover:border-primary transition-all"
     >
+      {/* Menú (...) */}
+      <div className="flex justify-end -mt-1 -mr-1 mb-1" ref={menuRef}>
+        <div className="relative">
+          <button
+            onClick={e => { e.stopPropagation(); setShowMenu(v => !v) }}
+            className="p-1 rounded-lg text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            <MoreVertical size={15} />
+          </button>
+          {showMenu && (
+            <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 min-w-40 py-1">
+              <button
+                onClick={e => { e.stopPropagation(); setShowMenu(false); navigate(`/proyectos/${proyecto.id}`) }}
+                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                <ExternalLink size={14} />Ver proyecto
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); setShowMenu(false); setShowDeleteConfirm(true) }}
+                className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                <Trash2 size={14} />Eliminar
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Alerta retraso */}
       {tieneRetraso && (
         <div className="flex items-center gap-1.5 bg-red-50 text-red-700 text-xs font-bold px-2.5 py-1.5 rounded-lg mb-2.5 border border-red-100">
@@ -159,6 +201,33 @@ function ProyectoCard({ proyecto, usuariosMap, contactosMap, fasesMap, materiale
         </div>
       )}
     </div>
+
+    {showDeleteConfirm && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+        onClick={e => e.stopPropagation()}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-red-100 rounded-xl flex-shrink-0">
+              <AlertTriangle size={22} className="text-red-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900">Eliminar proyecto</h3>
+          </div>
+          <p className="text-gray-700 text-sm mb-1">¿Eliminar <strong>{proyecto.nombre}</strong>?</p>
+          <p className="text-gray-500 text-sm mb-5">Esta acción no se puede deshacer. Se eliminarán también todas sus fases, materiales y gastos.</p>
+          <div className="flex gap-3">
+            <button onClick={e => { e.stopPropagation(); setShowDeleteConfirm(false) }}
+              className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-700 font-bold hover:bg-gray-50 transition-colors">
+              Cancelar
+            </button>
+            <button onClick={handleDelete}
+              className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition-colors">
+              Sí, eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 
@@ -264,6 +333,7 @@ export default function Proyectos() {
                     key={p.id} proyecto={p}
                     usuariosMap={usuariosMap} contactosMap={contactosMap}
                     fasesMap={fasesMap} materialesMap={materialesMap}
+                    onDeleted={fetchData}
                   />
                 ))}
               </div>
