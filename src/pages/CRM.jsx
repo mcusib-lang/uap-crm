@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutGrid, List, Plus, Loader2, RefreshCw, Search, X } from 'lucide-react'
+import { LayoutGrid, List, Plus, Loader2, RefreshCw, Search, X, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import KanbanBoard, { ESTADOS } from '../components/KanbanBoard'
+import KanbanBoard from '../components/KanbanBoard'
 import ContactList from '../components/ContactList'
 import NewContactModal from '../components/NewContactModal'
+import ImportContactosModal from '../components/ImportContactosModal'
 import FilterBar, { DEFAULT_FILTROS } from '../components/FilterBar'
 
 function loadFiltros() {
@@ -23,6 +24,7 @@ export default function CRM() {
   const [usuarios, setUsuarios] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [filtros, setFiltros] = useState(loadFiltros)
   const [busqueda, setBusqueda] = useState('')
   const searchRef = useRef(null)
@@ -132,6 +134,12 @@ export default function CRM() {
             </button>
           </div>
           <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 bg-white hover:bg-gray-50 text-primary border-2 border-primary px-5 py-2.5 rounded-xl font-bold transition-colors text-base"
+          >
+            <Upload size={18} />Importar
+          </button>
+          <button
             onClick={() => setShowModal(true)}
             className="flex items-center gap-2 bg-primary hover:bg-primary-medium text-white px-5 py-2.5 rounded-xl font-bold transition-colors text-base shadow-sm"
           >
@@ -219,6 +227,14 @@ export default function CRM() {
           usuarios={usuarios}
           onClose={() => setShowModal(false)}
           onCreated={fetchData}
+        />
+      )}
+
+      {showImport && (
+        <ImportContactosModal
+          usuarios={usuarios}
+          onClose={() => setShowImport(false)}
+          onImported={fetchData}
         />
       )}
     </div>
