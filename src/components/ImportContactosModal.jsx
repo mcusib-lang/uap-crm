@@ -247,7 +247,7 @@ export default function ImportContactosModal({ usuarios, onClose, onImported }) 
   // ── UI helpers ────────────────────────────────────────────────────────────
   const tieneSegmento = !!mapeo.segmento
   const tieneEstado   = !!mapeo.estado
-  const preview       = filas.slice(0, 8)
+  const preview       = filas          // mostrar todas las filas del archivo
   const totalValidos  = filas.filter(f => {
     const col = mapeo.empresa
     return col && String(f[col] ?? '').trim()
@@ -400,12 +400,13 @@ export default function ImportContactosModal({ usuarios, onClose, onImported }) 
                 <div>
                   <h3 className="text-sm font-bold text-gray-800 mb-2">
                     Vista previa
-                    <span className="text-gray-400 font-normal ml-1">(primeras 8 filas)</span>
+                    <span className="text-gray-400 font-normal ml-1">({filas.length} filas)</span>
                   </h3>
-                  <div className="overflow-x-auto rounded-xl border border-gray-200">
-                    <table className="w-full text-xs">
-                      <thead>
+                  <div className="overflow-auto rounded-xl border border-gray-200" style={{ maxHeight: '55vh' }}>
+                    <table className="w-full text-xs" style={{ minWidth: `${Math.max(columnas.length * 120, 800)}px` }}>
+                      <thead className="sticky top-0 z-10">
                         <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-2 py-2 text-left font-bold text-gray-400 whitespace-nowrap sticky left-0 bg-gray-50 z-20 border-r border-gray-200">#</th>
                           {columnas.map(c => (
                             <th key={c} className={`px-2 py-2 text-left font-bold whitespace-nowrap ${
                               Object.values(mapeo).includes(c) ? 'text-primary bg-blue-50' : 'text-gray-400'
@@ -420,9 +421,10 @@ export default function ImportContactosModal({ usuarios, onClose, onImported }) 
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {preview.map((fila, i) => (
-                          <tr key={i} className="hover:bg-gray-50">
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white hover:bg-blue-50/30' : 'bg-gray-50/50 hover:bg-blue-50/30'}>
+                            <td className="px-2 py-1.5 text-gray-300 font-mono sticky left-0 bg-inherit border-r border-gray-100 select-none">{i + 1}</td>
                             {columnas.map(c => (
-                              <td key={c} className={`px-2 py-1.5 truncate max-w-32 ${
+                              <td key={c} className={`px-2 py-1.5 whitespace-nowrap max-w-40 truncate ${
                                 Object.values(mapeo).includes(c) ? 'text-gray-800 font-medium' : 'text-gray-400'
                               }`}>
                                 {String(fila[c] ?? '')}
@@ -434,7 +436,7 @@ export default function ImportContactosModal({ usuarios, onClose, onImported }) 
                     </table>
                   </div>
                   <p className="mt-1.5 text-xs text-gray-400">
-                    {filas.length} filas en total · columnas resaltadas = mapeadas
+                    {filas.length} filas · {columnas.length} columnas detectadas · columnas resaltadas en azul = mapeadas
                   </p>
                 </div>
               </div>
